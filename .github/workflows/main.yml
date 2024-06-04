@@ -1,0 +1,52 @@
+name: CI
+
+on: [push, workflow_dispatch]
+
+jobs:
+  build:
+
+    runs-on: windows-latest
+
+    steps:
+    - name: Download ngrok
+      run: Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
+
+    - name: Extract ngrok
+      run: Expand-Archive ngrok.zip
+
+    - name: Set up ngrok auth token
+      run: .\ngrok\ngrok.exe config add-authtoken $Env:NGROK_AUTH_TOKEN
+      env:
+        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+
+    - name: Enable Remote Desktop
+      run: |
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+        Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "P@ssw0rd!" -Force)
+
+    - name: Open ports in firewall
+      run: |
+        New-NetFirewallRule -DisplayName "Open port 28016 TCP" -Direction Inbound -Protocol TCP -LocalPort 28016 -Action Allow
+        New-NetFirewallRule -DisplayName "Open port 28082 TCP" -Direction Inbound -Protocol TCP -LocalPort 28082 -Action Allow
+
+    - name: Create ngrok config file
+      run: |
+        Add-Content -Path ngrok.yml -Value "version: '2'"
+        Add-Content -Path ngrok.yml -Value "authtoken: $Env:NGROK_AUTH_TOKEN"
+        Add-Content -Path ngrok.yml -Value "tunnels:"
+        Add-Content -Path ngrok.yml -Value "  rdp:"
+        Add-Content -Path ngrok.yml -Value "    addr: 3389"
+        Add-Content -Path ngrok.yml -Value "    proto: tcp"
+        Add-Content -Path ngrok.yml -Value "  port28016tcp:"
+        Add-Content -Path ngrok.yml -Value "    addr: 28016"
+        Add-Content -Path ngrok.yml -Value "    proto: tcp"
+        Add-Content -Path ngrok.yml -Value "  port28082tcp:"
+        Add-Content -Path ngrok.yml -Value "    addr: 28082"
+        Add-Content -Path ngrok.yml -Value "    proto: tcp"
+
+    - name: Start ngrok with config
+      run: .\ngrok\ngrok.exe start --all --config ngrok.yml
+      env:
+        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
